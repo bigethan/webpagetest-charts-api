@@ -3,7 +3,7 @@
  * Asked for a test result, retrieve it.
  */
 
-var debug   = require('debug')('wptc:data_store_fs');
+var debug   = require('debug')('wptc:data_store');
 var moment  = require('moment');
 var request = require('request');
 var mkdirp  = require('mkdirp');
@@ -65,14 +65,14 @@ dataStore = {
   },
 
   getDatapoint: function getTestData_anon(suiteId, testId, datapointId) {
-  
+
     var tests = fs.readdirSync(resultsPath + suiteId + path.sep + testId).filter(junk.not)
       , testIndex = tests.indexOf(datapointId)
       , testDir = resultsPath + suiteId + path.sep + testId + path.sep + tests[testIndex] + path.sep
       , data = {}
       , resourceBase = '/results/' + suiteId + '/' + testId + '/' + datapointId + '/'
       ;
-    
+
     data = {
       datapointId: datapointId,
       suiteId: suiteId,
@@ -83,7 +83,7 @@ dataStore = {
       nextTest: testIndex < tests.length - 1 ?  {suiteId: suiteId, testId: testId, datapointId: tests[testIndex + 1]} : null,
       prevTest: testIndex > 0 ? {suiteId: suiteId, testId: testId, datapointId: tests[testIndex - 1]} : null,
     };
-    
+
     return data;
   },
 
@@ -106,7 +106,7 @@ dataStore = {
   },
 
   getSuiteTest: function getChartData_anon (suiteName, testName) {
-    
+
     debug("getting suite test: " + suiteName + ' - ' + testName);
 
     suiteTests = {

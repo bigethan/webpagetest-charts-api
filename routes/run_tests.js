@@ -15,7 +15,7 @@ var request     = require('request');
 
 var querystring = require('querystring');
 var async       = require('async');
-var dataStore   = require('../data_store/file');
+var dataStore   = require('../data_store/postgres');
 var events      = require('events');
 
 
@@ -152,7 +152,7 @@ function getHrefFromElement(body, selector) {
 eventEmitter.on('runTests', function runTests(tests) {
   tests.forEach(function(test){
     setTimeout(function() {
-      runTest(test);
+      //runTest(test);
     }, getTestRunTimeout());
   });
 });

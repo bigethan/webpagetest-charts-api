@@ -7,10 +7,13 @@ var express   = require('express');
 var router    = express.Router();
 var debug     = require('debug')('wpt-api:tests');
 var _         = require('lodash');
+var async     = require('async');
 var jf        = require('jsonfile');
 var moment    = require('moment');
 var cache     = require('memory-cache');
-var dataStore = require('../data_store/postgres');
+
+//change this to the data store you want to use
+var dataStore   = require('../data_store');
 
 /*
  * Settings for tests
@@ -43,7 +46,7 @@ router.get('/:suiteId', function(req, res) {
   var data = getCache(req);
 
   if(data) {
-
+    encloseRenderSuite(req, res)(data)
   } else {
     data = dataStore.getSuite(req.params.suiteId, encloseRenderSuite(req, res));
   }
@@ -57,7 +60,7 @@ router.get('/:suiteId/:testId/:datapointId', function(req, res) {
   var data = getCache(req);
 
   if (data) {
-    renderDatapoint(data);
+    encloseRenderDatapoint(req, res)(data);
   } else {
     dataStore.getDatapoint(
       req.params.suiteId,
@@ -128,11 +131,12 @@ function chartFromDatapoints(suiteId, testConfig, datapoints, chartConfig) {
     fvPointValue = parseInt(dp.data.runs[1].firstView[chartConfig.type], 10);
     rvPointValue = parseInt(dp.data.runs[1].repeatView[chartConfig.type], 10);
 
+    //this filtering should be moved to the data_store
     if (inRange(fvPointValue, chartConfig.dataRange)
       && inRange(rvPointValue, chartConfig.dataRange)) {
       chart.fvValues.push([dataDate.getTime(), fvPointValue]);
       chart.rvValues.push([dataDate.getTime(), rvPointValue]);
-      chart.datapoints.push(dp.id);
+      chart.datapoints.push(dp.datapointId);
     }
 
   });
@@ -179,28 +183,29 @@ function setCache(req, data) {
 
 function encloseRenderSuite(req, res) {
   return function renderSuite(data) {
-    var suiteConfig = _.find(masterConfig.testSuites, {suiteId: data.suite});
+
+    var suiteConfig = _.find(masterConfig.testSuites, {suiteId: data.suiteId});
 
     data.charts = [];
     data.chartConfig = buildChartConfig(req, suiteConfig.chartConfig);
     data.availableChartTypes = availableChartTypes;
     data.suiteConfig = suiteConfig;
 
-    data.tests.forEach(function(testName){
-      testData = dataStore.getSuiteTest(data.suite, testName);
-      data.charts.push(chartFromDatapoints(
-        data.suite,
-        _.find(suiteConfig.testPages, {testId: testName}),
-        testData.datapoints,
-        data.chartConfig
-      ));
+    async.map(data.tests, function(testName, asyncCallback){
+      dataStore.getSuiteTest(data.suiteId, testName, function(testData){
+        data.charts.push(chartFromDatapoints(
+          data.suiteId,
+          _.find(suiteConfig.testPages, {testId: testName}),
+          testData.datapoints,
+          data.chartConfig
+        ));
+        asyncCallback();
+      });
+    }, function(err, results) {
+      setCache(req, data)
+      res.set(defaultHeaders);
+      res.json(data);
     });
-    setCache(req, data)
-  }
-
-  res.set(defaultHeaders);
-  res.json(data);
-
   }
 }
 
@@ -210,19 +215,20 @@ function encloseRenderDatapoint(req, res) {
       , testData
     ;
 
-    testData = dataStore.getSuiteTest(data.suiteId, data.testId)
-    data.testConfig = _.find(suiteConfig.testPages, {testId: data.testId});
-    data.chartConfig = buildChartConfig(req, suiteConfig.chartConfig);
-    data.chart = chartFromDatapoints(
-      data.suiteId,
-      _.find(suiteConfig.testPages, {testId: data.testId}),
-      testData.datapoints,
-      data.chartConfig
-    );
-    setCache(req, data)
+    dataStore.getSuiteTest(data.suiteId, data.testId, function(testData){
+      data.testConfig = _.find(suiteConfig.testPages, {testId: data.testId});
+      data.chartConfig = buildChartConfig(req, suiteConfig.chartConfig);
+      data.chart = chartFromDatapoints(
+        data.suiteId,
+        _.find(suiteConfig.testPages, {testId: data.testId}),
+        testData.datapoints,
+        data.chartConfig
+      );
+      setCache(req, data)
 
 
-    res.set(defaultHeaders);
-    res.json(data);
+      res.set(defaultHeaders);
+      res.json(data);
+    });
   }
 }

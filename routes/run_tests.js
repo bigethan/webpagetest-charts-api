@@ -15,8 +15,10 @@ var request     = require('request');
 
 var querystring = require('querystring');
 var async       = require('async');
-var dataStore   = require('../data_store/postgres');
 var events      = require('events');
+
+var dataStore   = require('../data_store');
+
 
 
 var testConfig = jf.readFileSync(process.env.SUITE_CONFIG);
@@ -57,7 +59,7 @@ eventEmitter.on('startTests', function startTests(testSuite) {
       location: testSuite.location
     });
 
-    testSuite.testPages[index].suitePathName = testSuite.suiteId;
+    testSuite.testPages[index].suiteId = testSuite.suiteId;
 
     if(testSuite.parentRequestUserAgent){
       testSuite.testPages[index].headers = {'User-Agent': testSuite.parentRequestUserAgent};
@@ -152,7 +154,7 @@ function getHrefFromElement(body, selector) {
 eventEmitter.on('runTests', function runTests(tests) {
   tests.forEach(function(test){
     setTimeout(function() {
-      //runTest(test);
+      runTest(test);
     }, getTestRunTimeout());
   });
 });

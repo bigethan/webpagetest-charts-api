@@ -3,7 +3,7 @@
  * Asked for a test result, retrieve it.
  */
 
-var debug   = require('debug')('wptc:data_store');
+var debug   = require('debug')('wpt-api:data_store');
 var moment  = require('moment');
 var request = require('request');
 var mkdirp  = require('mkdirp');
@@ -12,6 +12,7 @@ var path    = require('path');
 var jf      = require('jsonfile');
 var os      = require('os');
 var junk    = require('junk');
+var async   = require('async');
 
 //this should probably come from config
 var resultsPath = 'public' + path.sep + 'results' + path.sep;
@@ -43,12 +44,12 @@ dataStore = {
       delete results.data.runs[1].firstView.requests;
       delete results.data.runs[1].repeatView.requests;
     } catch(e) {
-      debug('ran into trouble deleting extra data.')
+      debug('ran into trouble deleting extra data.');
     }
 
     var response = results.data
       , datePath = moment().format('YYYY-MM-DD-HH-mm-ss')
-      , datapointPath = test.suitePathName + path.sep + test.testId + path.sep + datePath
+      , datapointPath = test.suiteId + path.sep + test.testId + path.sep + datePath
       , datapointDir  = resultsPath + datapointPath
       ;
 
@@ -64,52 +65,61 @@ dataStore = {
 
   },
 
-  getDatapoint: function getTestData_anon(suiteId, testId, datapointId) {
+  getDatapoint: function getDatapoint_anon(suiteId, testId, datapointId, callback) {
 
-    var tests = fs.readdirSync(resultsPath + suiteId + path.sep + testId).filter(junk.not)
-      , testIndex = tests.indexOf(datapointId)
+    fs.readdir(resultsPath + suiteId + path.sep + testId, function(err, tests){
+      if (err || !tests) {
+        debug('no tests found for datapoint: ' + suiteId + ' - ' + testId + ' - ' + datapointId);
+        callback({});
+        return;
+      }
+      tests = tests.filter(junk.not);
+      var testIndex = tests.indexOf(datapointId)
       , testDir = resultsPath + suiteId + path.sep + testId + path.sep + tests[testIndex] + path.sep
       , data = {}
       , resourceBase = '/results/' + suiteId + '/' + testId + '/' + datapointId + '/'
       ;
 
-    data = {
-      datapointId: datapointId,
-      suiteId: suiteId,
-      testId: testId,
-      jsonLink: resourceBase + 'results.json',
-      testResults: jf.readFileSync(testDir + 'results.json'),
-      testDate: tests[testIndex],
-      nextTest: testIndex < tests.length - 1 ?  {suiteId: suiteId, testId: testId, datapointId: tests[testIndex + 1]} : null,
-      prevTest: testIndex > 0 ? {suiteId: suiteId, testId: testId, datapointId: tests[testIndex - 1]} : null,
-    };
-
-    return data;
+      jf.readFile(testDir + 'results.json', function(err, jsonResults){
+        data = {
+          datapointId: datapointId,
+          suiteId: suiteId,
+          testId: testId,
+          jsonLink: resourceBase + 'results.json',
+          testResults: jsonResults,
+          testDate: tests[testIndex],
+          nextTest: testIndex < tests.length - 1 ?  {suiteId: suiteId, testId: testId, datapointId: tests[testIndex + 1]} : null,
+          prevTest: testIndex > 0 ? {suiteId: suiteId, testId: testId, datapointId: tests[testIndex - 1]} : null,
+        };
+        callback(data);
+      });
+    });
   },
 
   /*
    * Return the data for a suite of tests
    */
-  getSuite: function (suiteName) {
-    debug("getting suite: " + suiteName);
+  getSuite: function getSuite_anon (suiteId, callback) {
+    debug("getting suite: " + suiteId);
 
-    var suiteDir = resultsPath + suiteName
-      , testDirs = fs.readdirSync(suiteDir).filter(junk.not)
-      ;
+    var suiteDir = resultsPath + suiteId;
+    fs.readdir(suiteDir, function(err, testDirsRaw){
+      var testDirs = testDirsRaw.filter(junk.not);
 
-    suite = {
-      suite: suiteName,
-      tests: testDirs
-    };
+      suite = {
+        suiteId: suiteId,
+        tests: testDirs
+      };
 
-    return suite;
+      callback(suite);
+    });
   },
 
-  getSuiteTest: function getChartData_anon (suiteName, testName) {
+  getSuiteTest: function getSuiteTest_anon (suiteName, testName, callback) {
 
     debug("getting suite test: " + suiteName + ' - ' + testName);
 
-    suiteTests = {
+    var suiteTests = {
       suite: suiteName,
       testName: testName,
       datapoints: []
@@ -117,17 +127,23 @@ dataStore = {
 
     var testDirBase = resultsPath + suiteName + path.sep + testName;
 
-    testDirs = fs.readdirSync(testDirBase).filter(junk.not);
-    testDirs.forEach(function(testDir){
-      var datapoint = {
-            id: testDir,
-            //sync to keep the array of results in order. lil lazy/slow
-            data: jf.readFileSync(testDirBase + path.sep + testDir + path.sep + 'results.json').data
-          }
-        ;
-      suiteTests.datapoints.push(datapoint);
+    fs.readdir(testDirBase, function(err, testDirs){
+      var testDirs = testDirs.filter(junk.not);
+      async.map(testDirs, function(testDir, asyncCallback){
+        jf.readFile(testDirBase + path.sep + testDir + path.sep + 'results.json', function(err, jsonData){
+          var datapoint = {
+                datapointId: testDir,
+                data: jsonData.data
+              }
+            ;
+          suiteTests.datapoints.push(datapoint);
+          asyncCallback();
+        });
+      }, function(){
+        callback(suiteTests);
+      });
+
     });
-    return suiteTests;
   }
 };
 
